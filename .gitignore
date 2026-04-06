@@ -1,0 +1,24 @@
+# Virtual environment
+venv/
+
+# ChromaDB — your email data stays local
+data/
+
+# Your actual emails — never upload these
+emails/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Mac files
+.DS_Store
+
+# Debug scripts
+app/debug.py
+
+# Environment variables
+.env
+*.docx
+~$*.docx
