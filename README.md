@@ -1,28 +1,64 @@
-# RAG Email Assistant
+# AgentMail — Agentic RAG Email Assistant
 
-A privacy-preserving email draft assistant powered by local LLMs and Retrieval-Augmented Generation (RAG). No data leaves your machine — fully FERPA/HIPAA-friendly.
+A privacy-preserving, multi-model agentic email draft assistant powered by local LLMs and Retrieval-Augmented Generation. Two language models reason against each other to generate accurate, hallucination-free email drafts. No data leaves your machine — fully FERPA-compliant.
 
 ---
 
-## How it works
+## Architecture
 
 ```
 Incoming email
       ↓
-Semantic search across two knowledge bases
+Node 1: Classifier (Mistral)
+  - Extracts topic and keywords dynamically from email content
+  - Decides if web search is needed
       ↓
-┌─────────────────┐     ┌─────────────────┐
-│  Past email     │     │  Website data   │
-│  archive        │     │  (scraped)      │
-└────────┬────────┘     └────────┬────────┘
-         └──────────┬────────────┘
-                    ↓
-         Llama 3 (via Ollama) drafts reply
-                    ↓
-         Review and send
+Node 2: Retriever (ChromaDB)
+  - Past email pairs → tone and format reference only
+  - Scraped website content → factual grounding only
+      ↓
+Node 3: Web Search (DuckDuckGo)
+  - Site-restricted to official domain only
+  - Triggered only when local retrieval is insufficient
+      ↓
+Node 4: Drafter (Llama 3)
+  - Generates reply using tone from emails, facts from website
+      ↓
+Node 5: Critic (Mistral)
+  - Independently evaluates accuracy, completeness, tone,
+    clarity, and hallucinations
+  - Returns specific critique to Llama 3 (max 2 loops)
+      ↓
+Node 6: Judge (Mistral)
+  - Makes final approval decision
+  - Flags low confidence replies for human review
+      ↓
+Final draft with quality score
 ```
 
-Past emails teach the system **tone and format**. Website data provides **accurate, up-to-date facts**. The LLM combines both to generate a contextually relevant draft.
+---
+
+## Why two models?
+
+A single model evaluating its own output has self-approval bias — it tends to approve what it wrote. By using Mistral as an independent critic and judge, the system catches hallucinations and gaps that the drafter missed.
+
+| Model | Role | Strength |
+|---|---|---|
+| Llama 3 | Drafter and reviser | Natural, warm prose generation |
+| Mistral | Classifier, critic, judge | Analytical reasoning and evaluation |
+
+---
+
+## Dual knowledge base design
+
+Two separate ChromaDB collections with deliberately different purposes:
+
+| Collection | Source | Purpose |
+|---|---|---|
+| Email archive | Word document (.docx) | Tone, greeting, sign-off format only |
+| Website content | BeautifulSoup scraper | All factual claims — courses, deadlines, requirements |
+
+This separation prevents outdated email information from being used as facts and forces all factual claims to be grounded in current official website content.
 
 ---
 
@@ -30,23 +66,15 @@ Past emails teach the system **tone and format**. Website data provides **accura
 
 | Component | Tool |
 |---|---|
-| LLM | Llama 3 via Ollama (runs locally) |
+| LLM — drafting | Llama 3 via Ollama |
+| LLM — reasoning | Mistral via Ollama |
 | Vector store | ChromaDB |
 | Embeddings | sentence-transformers (all-MiniLM-L6-v2) |
 | Orchestration | LangChain |
 | Web scraping | BeautifulSoup |
-| UI | Streamlit |
-| Knowledge base | Word document (.docx) + scraped URLs |
-
----
-
-## Features
-
-- **Fully local** — Llama 3 runs on your machine via Ollama. No API keys, no cloud, no data exposure
-- **Dual knowledge base** — retrieves from past email pairs AND live website content simultaneously
-- **One-click refresh** — re-ingest emails or re-scrape websites from the UI sidebar
-- **Source transparency** — expandable "Sources used" section shows exactly what context was retrieved
-- **Privacy by design** — suitable for institutional use with sensitive applicant data
+| Web search | DuckDuckGo (site-restricted) |
+| UI | Streamlit (basic RAG version) |
+| Knowledge base input | Word document (.docx) |
 
 ---
 
@@ -56,7 +84,11 @@ Past emails teach the system **tone and format**. Website data provides **accura
 
 - Python 3.12+
 - [Ollama](https://ollama.com) installed and running
-- Llama 3 pulled: `ollama pull llama3`
+- Models pulled locally:
+```bash
+ollama pull llama3
+ollama pull mistral
+```
 
 ### Install
 
@@ -87,6 +119,7 @@ Question:
 
 ```
 https://yourorganization.com/admissions
+https://yourorganization.com/programs
 https://yourorganization.com/financial-aid
 ```
 
@@ -102,11 +135,15 @@ python app/scraper.py
 
 ### Run
 
+**Agentic pipeline (terminal):**
+```bash
+python app/agent.py
+```
+
+**Basic RAG UI (Streamlit):**
 ```bash
 streamlit run app/main.py --server.fileWatcherType none
 ```
-
-Open `http://localhost:8501` in your browser.
 
 ---
 
@@ -115,12 +152,13 @@ Open `http://localhost:8501` in your browser.
 ```
 rag_email_assistant/
 ├── app/
-│   ├── main.py          # Streamlit UI
-│   ├── ingest.py        # Email pair ingestion into ChromaDB
-│   └── scraper.py       # Website scraper into ChromaDB
-├── emails/              # Your email knowledge base (gitignored)
-├── data/                # ChromaDB vector store (gitignored)
-├── urls.txt             # URLs to scrape
+│   ├── agent.py         Multi-model agentic pipeline
+│   ├── main.py          Streamlit UI (basic RAG version)
+│   ├── ingest.py        Email pair ingestion into ChromaDB
+│   └── scraper.py       Website scraper into ChromaDB
+├── emails/              Email knowledge base (gitignored)
+├── data/                ChromaDB vector store (gitignored)
+├── urls.txt             URLs to scrape
 ├── requirements.txt
 └── .gitignore
 ```
@@ -129,20 +167,67 @@ rag_email_assistant/
 
 ## Privacy
 
-- All processing happens locally on your machine
-- Email data is stored only in the local ChromaDB instance
-- No data is sent to external APIs or cloud services
-- The `emails/` and `data/` directories are gitignored by default
+- Llama 3 and Mistral run entirely on-device via Ollama
+- All embeddings generated locally by sentence-transformers
+- ChromaDB stores all vectors as local files
+- Email data never transmitted to any external service
+- Web search queries only the official public website
+- `emails/` and `data/` directories are gitignored by default
+- Suitable for FERPA-protected student data
 
 ---
 
-## Future improvements
+## Sample output
 
-- [ ] Folder watch automation — auto-process emails dropped into a folder
+```
+MULTI-MODEL AGENTIC RAG EMAIL ASSISTANT
+Drafter: llama3 | Critic: mistral
+
+[Node 1] Mistral classifying email...
+  Topic:        program prerequisites
+  Keywords:     MIPA prerequisites, core courses, requirements
+  Needs search: yes
+
+[Node 2] Retrieving from knowledge base...
+  Email matches: 3
+  Web matches:   3
+
+[Node 3] Searching official domain...
+  Web search: 3 results
+
+[Node 4] Llama 3 drafting reply (loop 1)...
+
+[Node 5] Mistral critiquing draft (loop 1)...
+  Accuracy:       5/5
+  Completeness:   4/5
+  Tone:           5/5
+  Clarity:        5/5
+  Hallucinations: None detected
+  Overall:        4.75/5
+  Approved:       Yes
+
+[Node 6] Mistral making final judgement...
+  Final score:    5/5
+  Summary:        Ready for human review
+
+FINAL DRAFT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[complete email draft with bullet points]
+
+Overall quality:  5/5
+STATUS: Ready for human review
+```
+
+---
+
+## Planned improvements
+
+- [ ] Connect agent to Streamlit UI
 - [ ] Word document output — save drafts as `.docx` files
-- [ ] Outlook integration — connect via Microsoft Graph API (requires admin consent)
-- [ ] Confidence scoring — flag low-confidence replies for closer review
-- [ ] Multi-language support
+- [ ] Folder watch automation — auto-process emails dropped into a watched folder
+- [ ] Outlook integration via Microsoft Graph API
+- [ ] Auto-extract hyperlinks from email pairs and add to scraper
+- [ ] Confidence-based routing — low confidence emails flagged for senior review
 
 ---
 
