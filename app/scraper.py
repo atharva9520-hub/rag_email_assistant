@@ -41,20 +41,11 @@ def scrape_url(url):
         print(f"Failed to scrape {url}: {e}")
         return None
 
-def chunk_text(text, url, chunk_size=500, overlap=50):
-    """Split text into overlapping chunks for better retrieval."""
-    words = text.split()
-    chunks = []
-    
-    for i in range(0, len(words), chunk_size - overlap):
-        chunk = " ".join(words[i:i + chunk_size])
-        if chunk:
-            chunks.append({
-                "text": chunk,
-                "source": url
-            })
-    
-    return chunks
+def chunk_text(text, url):
+    """Store full page content as a single chunk — no artificial splitting."""
+    if text.strip():
+        return [{"text": text, "source": url}]
+    return []
 
 def ingest_website():
     """Scrape all URLs and store in ChromaDB."""
