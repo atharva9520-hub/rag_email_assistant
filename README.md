@@ -212,7 +212,7 @@ Drafter: llama3 | Critic: mistral
 
 FINAL DRAFT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-[complete email draft with bullet points]
+[complete email draft]
 
 Overall quality:  5/5
 STATUS: Ready for human review
